@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en" >
+
+<!-- Mirrored from digitonaut.com/art/grape_soda/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 10:05:17 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta charset='utf-8'\>
+<meta name='apple-mobile-web-app-capable' content='yes'><meta name='apple-mobile-web-app-status-bar-style' content='black-translucent'><title>Grape Soda</title>
+
+<link rel="stylesheet" href="style.css">
+
+</head>
+<body>
+<!-- partial:index.partial.html -->
+<script src="88_three.min.js"></script>
+<script id="vertexShader" type="x-shader/x-vertex">
+    void main() {
+        gl_Position = vec4( position, 1.0 );
+    }
+</script>
+<script id="fragmentShader" type="x-shader/x-fragment">
+    uniform vec2 u_resolution;
+    uniform float u_time;
+    uniform vec2 u_mouse;
+    uniform sampler2D u_env;
+  
+    const int octaves = 2;
+    const float seed = 43758.5453123;
+    const float seed2 = 73156.8473192;
+    // Epsilon value
+    const float eps = 0.005;
+  
+    const vec3 ambientLight = 0.99 * vec3(1.0, 1.0, 1.0);
+    const vec3 light1Pos = vec3(10., 5.0, -25.0);
+    const vec3 light1Intensity = vec3(0.35);
+    const vec3 light2Pos = vec3(-20., -25.0, 85.0);
+    const vec3 light2Intensity = vec3(0.2);
+  
+    // movement variables
+    vec3 movement = vec3(.0);
+
+    // Gloable variables for the raymarching algorithm.
+    const int maxIterations = 1024;
+    const int maxIterationsRef = 256;
+    const int maxIterationsShad = 16;
+    const float stepScale = .3;
+    const float stepScaleRef = 0.95;
+    const float stopThreshold = 0.001;
+  
+  
+  mat4 rotationMatrix(vec3 axis, float angle)
+  {
+      axis = normalize(axis);
+      float s = sin(angle);
+      float c = cos(angle);
+      float oc = 1.0 - c;
+
+      return mat4(oc * axis.x * axis.x + c,           oc * axis.x * axis.y - axis.z * s,  oc * axis.z * axis.x + axis.y * s,  0.0,
+                  oc * axis.x * axis.y + axis.z * s,  oc * axis.y * axis.y + c,           oc * axis.y * axis.z - axis.x * s,  0.0,
+                  oc * axis.z * axis.x - axis.y * s,  oc * axis.y * axis.z + axis.x * s,  oc * axis.z * axis.z + c,           0.0,
+                  0.0,                                0.0,                                0.0,                                1.0);
+  }
+  
+  
+  float length2( vec2 p )
+  {
+    return sqrt( p.x*p.x + p.y*p.y );
+  }
+
+  float length6( vec2 p )
+  {
+    p = p*p*p; p = p*p;
+    return pow( p.x + p.y, 1.0/6.0 );
+  }
+
+  float length8( vec2 p )
+  {
+    p = p*p; p = p*p; p = p*p;
+    return pow( p.x + p.y, 1.0/8.0 );
+  }
+  
+  // Distance function primitives
+  // Reference: http://iquilezles.org/www/articles/distfunctions/distfunctions.htm
+  float sdBox( vec3 p, vec3 b )
+  {
+    vec3 d = abs(p) - b;
+    return min(max(d.x,max(d.y,d.z)),0.0) + length(max(d,0.0));
+  }
+  float udBox( vec3 p, vec3 b )
+  {
+    return length(max(abs(p)-b,0.0));
+  }
+  float udRoundBox( vec3 p, vec3 b, float r )
+  {
+    return length(max(abs(p)-b,0.0))-r;
+  }
+  float sdSphere( vec3 p, float s )
+  {
+    return length(p)-s;
+  }
+  float sdCylinder( vec3 p, vec3 c )
+  {
+    return length(p.xz-c.xy)-c.z;
+  }
+  float sdCappedCylinder( vec3 p, vec2 h )
+  {
+    vec2 d = abs(vec2(length(p.xz),p.y)) - h;
+    return min(max(d.x,d.y),0.0) + length(max(d,0.0));
+  }
+  float sdTorus82( vec3 p, vec2 t )
+  {
+    vec2 q = vec2(length2(p.xz)-t.x,p.y);
+    return length8(q)-t.y;
+  }
+  float sdPlane( vec3 p)
+  {
+    return p.y;
+  }
+  
+  // smooth min
+  // reference: http://iquilezles.org/www/articles/smin/smin.htm
+  float smin(float a, float b, float k) {
+      float res = exp(-k*a) + exp(-k*b);
+      return -log(res)/k;
+  }
+  
+  vec3 random3( vec3 p ) {
+      return fract(sin(vec3(dot(p,vec3(127.1,311.7,319.8)),dot(p,vec3(269.5,183.3, 415.2)),dot(p,vec3(362.9,201.5,134.7))))*43758.5453);
+  }
+  vec2 random2( vec2 p ) {
+      return fract(sin(vec2(dot(p,vec2(127.1,311.7)),dot(p,vec2(269.5,183.3))))*43758.5453);
+  }
+  
+  // The world!
+  float world_sdf(in vec3 p) {
+    float world = 10.;
+    
+    // p.xz += 2.;
+    // p.xz = mod(p.xz, 4.) - 2.;
+    
+    vec2 polar = vec2(length(p.xz), p.y * 5.);
+    float px = polar.x;
+    
+    polar.x = sin(polar.x * 5. - u_time * 5.);
+    
+    world = length(polar) - .4;
+    // world *= min( 1., px);
+    // float variance = (sin(p.y + u_time) * 8. + cos(p.z + u_time) * 10.) * .5;
+    // world = smin(world, length(p.zx) - .05, 5.);
+    world = smin(world, p.y+.1, 3.);
+    world = smin(world, length(p.zx + sin(p.y * 15. + u_time * 50.) * .002 + cos(p.z * 15. + u_time * 100.) * .002) - .08, 8.);
+    
+    return world;
+  }
+  
+  // Fuck yeah, normals!
+  vec3 calculate_normal(in vec3 p)
+  {
+    const vec3 small_step = vec3(0.0001, 0.0, 0.0);
+    
+    float gradient_x = world_sdf(vec3(p.x + eps, p.y, p.z)) - world_sdf(vec3(p.x - eps, p.y, p.z));
+    float gradient_y = world_sdf(vec3(p.x, p.y + eps, p.z)) - world_sdf(vec3(p.x, p.y - eps, p.z));
+    float gradient_z = world_sdf(vec3(p.x, p.y, p.z  + eps)) - world_sdf(vec3(p.x, p.y, p.z - eps));
+    
+    vec3 normal = vec3(gradient_x, gradient_y, gradient_z);
+
+    return normalize(normal);
+  }
+
+  // Raymarching.
+  float rayMarching( vec3 origin, vec3 dir, float start, float end, inout float field ) {
+    
+    float sceneDist = 1e4;
+    float rayDepth = start;
+    for ( int i = 0; i < maxIterations; i++ ) {
+      sceneDist = world_sdf( origin + dir * rayDepth ); // Distance from the point along the ray to the nearest surface point in the scene.
+
+      if (( sceneDist < stopThreshold ) || (rayDepth >= end)) {        
+        break;
+      }
+      // We haven't hit anything, so increase the depth by a scaled factor of the minimum scene distance.
+      rayDepth += sceneDist * stepScale;
+    }
+  
+    if ( sceneDist >= stopThreshold ) rayDepth = end;
+    else rayDepth += sceneDist;
+      
+    // We've used up our maximum iterations. Return the maximum distance.
+    return rayDepth;
+  }
+// Raymarching reflections. It appears that GPUs won't do loops with variable iterations, but reflections are expensive, so you need to use fewer
+// iterations. Therefore, I've had to make an almost duplicate version of the raymarching function above. Surely, there's a better way, but at least 
+// it works. Reflection are a little fiddly, but otherwise easy to implement. Unfortunately, they take up extra iterations that, sometimes, your poor 
+// GPU can't handle.
+//
+// Anyway, once you've hit a surface point in the scene, the surface point will become the new origin, and the normalized reflected vector 
+// will become the new ray direction (dir). Feed those into the function below, then use the resultant distance to obtain the surface the reflected 
+// ray hits (if any). Put that result into the light equation, then add a portion of the color to the color you've already attained from the 
+// first raymarching pass. Simple... once you've done it a few times and get used to the process.
+float rayMarchingReflections( vec3 origin, vec3 dir, float start, float end ) {
+	
+	float sceneDist = 1e4;
+	float rayDepth = start; // Ray depth. "start" is usually zero, but for various reasons, you may wish to start the ray further away from the origin.
+	for ( int i = 0; i < maxIterationsRef; i++ ) {
+		sceneDist = world_sdf( origin + dir * rayDepth ); // Distance from the point along the ray to the nearest surface point in the scene.
+
+		if (( sceneDist < stopThreshold ) || (rayDepth >= end)) {
+		
+		    // (rayDepth >= end) - The casted ray has proceeded past the end zone, so it's time to return the maximum distance.
+		     
+		    // (sceneDist < stopThreshold) - The distance is pretty close to zero, which means the point on the ray has effectively come into contact 
+		    // with the surface. Therefore, we can return the distance, which can be used to calculate the surface point.
+			
+			break; 
+		}
+		
+		// We haven't hit anything, so increase the depth by a scaled factor of the minimum scene distance.
+		rayDepth += sceneDist * stepScaleRef;
+
+	}
+	
+
+	// I'd normally arrange for the following to be taken care of prior to exiting the loop, but Firefox won't execute anything before
+	// the "break" statement. Why? I couldn't say. I'm not even game enough to put more than one return statement.	
+	//
+	// Normally, you'd just return the rayDepth value only, but for some reason that escapes my sense of logic - and everyone elses, for 
+	// that matter, adding the final, infinitessimal scene distance value (sceneDist) seems to reduce a lot of popping artifacts. If 
+	// someone could put me out of my misery and prove why I should either leave it there, or get rid of it, it'd be appreciated.
+	if ( sceneDist > stopThreshold ) rayDepth = end;
+	else rayDepth += sceneDist;
+	
+	// We've used up our maximum iterations. Return the maximum distance.
+	return rayDepth;
+}
+
+  
+
+  // Shadows
+  // Reference at: http://www.iquilezles.org/www/articles/rmshadows/rmshadows.htm
+  float softShadow(vec3 ro, vec3 lightPos, float start, float k){
+    
+      vec3 rd = lightPos - ro;
+      float end = length(rd);
+
+      float shade = 1.0;
+
+      float dist = start;
+      float stepDist = start;
+
+      for (int i=0; i<maxIterationsShad; i++){
+          float h = world_sdf(ro + rd*dist);
+          shade = min(shade, k*h/dist);
+          
+          dist += min(h, stepDist*2.); // The best of both worlds... I think. 
+          
+          if (h<0.001 || dist > end) break; 
+      }
+
+      return min(max(shade, 0.) + 0.3, 1.0); 
+  }
+
+  // Based on original by IQ - optimized to remove a divide
+  float calculateAO(vec3 p, vec3 n)
+  {
+     const float AO_SAMPLES = 5.0;
+     float r = 0.0;
+     float w = 1.0;
+     for (float i=1.0; i<=AO_SAMPLES; i++)
+     {
+        float d0 = i * 0.15; // 1.0/AO_SAMPLES
+        r += w * (d0 - world_sdf(p + n * d0));
+        w *= 0.5;
+     }
+     return 1.0-clamp(r,0.0,1.0);
+  }
+  
+  /**
+   * Lighting
+   * This stuff is way way better than the model I was using.
+   * Courtesy Shane Warne
+   * Reference: http://raymarching.com/
+   * -------------------------------------
+   * */
+  
+  // Lighting.
+  vec3 lighting( vec3 sp, vec3 camPos, int reflectionPass, float dist, float field, vec3 rd, vec3 surfNormal) {
+    
+    // Start with black.
+    vec3 sceneColor = vec3(0.0);
+
+    vec3 objColor = vec3(1.0, .5, 1.5) * .5;
+    
+    float a = atan(surfNormal.z,surfNormal.x );
+    
+    // Holy fuck balls, fresnel!
+    float bias = .2;
+    float scale = 10.;
+    float power = 5.1;
+    // specular = max(0.0, min(1.0, bias + scale * (1.0 + length(camPos-sp * surfNormal)) * power));
+    float shade = bias + (scale * pow(1.0 + dot(normalize(sp-camPos), surfNormal), power));
+    
+    vec3 reflection = normalize(reflect(camPos, surfNormal));
+    objColor += texture2D(u_env, (reflection.xz) * 2.).rgb * .6;
+    
+    // objColor += texture2D(u_env, (surfNormal.xy - normalize(camPos.xy
+                                                           // )) * 2.).rgb * .6;
+
+    // Lighting.
+
+    // lp - Light position. Keeping it in the vacinity of the camera, but away from the objects in the scene.
+    vec3 lp = vec3(-0.5 + sin(u_time), -0.5, -1.0) + movement;
+    // ld - Light direction.
+    vec3 ld = lp-sp;
+    // lcolor - Light color.
+    vec3 lcolor = vec3(1.,0.97,0.92) * .8;
+    
+     // Light falloff (attenuation).
+    float len = length( ld ); // Distance from the light to the surface point.
+    ld /= len; // Normalizing the light-to-surface, aka light-direction, vector.
+    // float lightAtten = min( 1.0 / ( 0.15*len*len ), 1.0 ); // Removed light attenuation for this because I want the fade to white
+    
+    float sceneLen = length(camPos - sp); // Distance of the camera to the surface point
+    float sceneAtten = min( 1.0 / ( 0.015*sceneLen*sceneLen ), 1.0 ); // Keeps things between 0 and 1.   
+
+    // Obtain the reflected vector at the scene position "sp."
+    vec3 ref = reflect(-ld, surfNormal);
+    
+    float ao = 1.0; // Ambient occlusion.
+    // ao = calculateAO(sp, surfNormal); // Ambient occlusion.
+
+    float ambient = .5; //The object's ambient property.
+    float specularPower = 200.; // The power of the specularity. Higher numbers can give the object a harder, shinier look.
+    float diffuse = max( 0.0, dot(surfNormal, ld) ); //The object's diffuse value.
+    float specular = max( 0.0, dot( ref, normalize(camPos-sp)) ); //The object's specular value.
+    specular = pow(specular, specularPower); // Ramping up the specular value to the specular power for a bit of shininess.
+    	
+    // Bringing all the lighting components togethr to color the screen pixel.
+    sceneColor = objColor * (diffuse*0.8+ambient) + specular*0.5 * shade + shade * .5;
+    sceneColor *= lcolor;
+    // sceneColor += (objColor*(diffuse*0.8+ambient)+specular*0.5)*lcolor*1.3;
+    sceneColor = mix(sceneColor, vec3(1.), 1.-sceneAtten*sceneAtten); // fog
+    
+    // float shadow = softShadow(sp, lp, .005, .5);
+    // sceneColor *= clamp(shadow * 2., 0., 1.);
+    // sceneColor = vec3(shade * 2.);
+    
+    return sceneColor;
+
+  }
+
+    void main() {
+      
+      // Setting up our screen coordinates.
+      vec2 aspect = vec2(u_resolution.x/u_resolution.y, 1.0); //
+      vec2 uv = (2.0*gl_FragCoord.xy/u_resolution.xy - 1.0)*aspect;
+      
+      // This just gives us a touch of fisheye
+      // uv *= 1. + dot(uv, uv) * 0.4;
+      
+      // movement
+      movement = vec3(0.);
+      
+      // The sin in here is to make it look like a walk.
+      vec3 lookAt = vec3(-0., 0.2, 1.);  // This is the point you look towards, or at, if you prefer.
+      vec3 camera_position = vec3(-0., 2., -4.0); // This is the point you look from, or camera you look at the scene through. Whichever way you wish to look at it.
+      camera_position.xz += vec2((u_mouse.x * 10.), (u_mouse.y * 10.));
+      
+      lookAt += movement;
+      // lookAt.z += sin(u_time / 10.) * .5;
+      // lookAt.x += cos(u_time / 10.) * .5;
+      camera_position += movement;
+      
+      vec3 forward = normalize(lookAt-camera_position); // Forward vector.
+      vec3 right = normalize(vec3(forward.z, 0., -forward.x )); // Right vector... or is it left? Either way, so long as the correct-facing up-vector is produced.
+      vec3 up = normalize(cross(forward,right)); // Cross product the two vectors above to get the up vector.
+
+      // FOV - Field of view.
+      float FOV = 0.4;
+
+      // ro - Ray origin.
+      vec3 ro = camera_position; 
+      // rd - Ray direction.
+      vec3 rd = normalize(forward + FOV*uv.x*right + FOV*uv.y*up);
+      
+      // float l = atan(u_mouse.y, u_mouse.x);
+      // rd.xy *= mat2(cos(u_mouse.x), -sin(u_mouse.y), sin(u_mouse.y), cos(u_mouse.x));
+      
+      // Ray marching.
+      const float clipNear = 0.0;
+      const float clipFar = 32.0;
+      float field = 0.;
+      float dist = rayMarching(ro, rd, clipNear, clipFar, field );
+
+      // sp - Surface position. If we've made it this far, we've hit something.
+      vec3 sp = ro + rd*dist;
+      
+      // Obtain the surface normal at the scene position "sp."
+      vec3 surfNormal = calculate_normal(sp);
+      
+      vec3 ref = vec3(0.);
+      
+      if ( dist >= clipFar ) {
+        gl_FragColor = vec4(vec3(1.), 1.0);
+        return;
+      }
+
+
+      // Light the pixel that corresponds to the surface position. The last entry indicates that it's not a reflection pass
+      // which we're not up to yet.
+      vec3 sceneColor = lighting( sp, camera_position, 0, dist, field, rd, surfNormal);
+      
+      
+      // Reflection
+
+      // We've completed the first surface collision pass, so now we can begin the reflected ray pass. It's done in the same way
+      // as above, except that our origin is now the point on the surface of the object we've just hit (sp), and the ray direction
+      // (rd) is simply the reflected ray (ref). If we construct a vector from the light to the surface postion, the reflected 
+      // ray will be the ray cast off in the mirror reflection across the surface normal - A diagram would be helpful right about 
+      // now, but I'll probably write about this later. For now, just look one up on the net.
+      //
+      // By the way, in theory, we're not restricted to just one reflection pass. We could do this multiple times, by obtaining the 
+      // reflected ray of the reflected ray, and so forth. Unfortunately, modern GPUs have their limits, so just the one pass
+      // will have to suffice. It'd be nice to have more lights too, but that means even more passes, so just the one will have to do.
+      //
+      // rd = ref, in this case. It has already been calculated during the lighting function, so we're sacrificing a little readability 
+      // and reusing it. Correct me if I'm wrong, but I'm pretty sure the reflected vector is already normalized, so there's no need to 
+      // normalize it again.
+      //
+      // The last thing I'll mention - and it's something that can help you avoid a lot of grief when doing reflections - is the point
+      // where you cast the ray from. In theory, it's the surface point. However, if you use that exact point, the first surface you'll
+      // return a hit from is the surface itself. Therefore, you need to inch the ray away from the surface point enough to not return 
+      // a collision. Just over the stop-threshold will do, but I've moved it just a little further than that. This is old code, so I 
+      // can't remember why I chose 5 times that amount. Perhaps I was being paranoid, but it works.
+//       dist = rayMarchingReflections(sp, reflect(rd, surfNormal), stopThreshold*5.0, clipFar );
+//       vec3 rsp = sp + ref*dist;
+      
+//       // The reflected ray hit something, so light the "reflected" pixel that corresponds to the "reflected" surface position.
+//       // The last entry "1" tells the lighting function to not include shadows, which are less important during a reflection pass.
+//         float refCoef = 0.35; // Reflective coefficient. The amount of reflected light we wish to incorporate into the final color.
+//         sceneColor = lighting( rsp, camera_position, 1, dist, field, rd, surfNormal)*refCoef;
+
+
+      // Clamping the lit pixel, then put it on the screen.
+      gl_FragColor = vec4(clamp(sceneColor, 0.0, 1.0), 1.0);
+
+
+    }
+</script>
+
+
+<div id="container" touch-action="none"></div>
+<!-- partial -->
+  <script  src="script.js"></script>
+
+</body>
+
+<!-- Mirrored from digitonaut.com/art/grape_soda/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 10:05:25 GMT -->
+</html>

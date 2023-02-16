@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en" >
+
+<!-- Mirrored from digitonaut.com/art/genuary_touch/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 10:04:59 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta charset='utf-8'\>
+<meta name='apple-mobile-web-app-capable' content='yes'><meta name='apple-mobile-web-app-status-bar-style' content='black-translucent'><title>Genuary Touch</title>
+
+<link rel="stylesheet" href="style.css">
+
+</head>
+<body>
+<!-- partial:index.partial.html -->
+<script id="vertexShader_particle" type="x-shader/x-vertex">
+  precision highp float;
+  attribute vec2 reference;
+  attribute vec2 position;
+
+  uniform vec4 u_properties;
+  uniform vec3 u_col_a;
+  uniform vec3 u_col_b;
+  uniform vec3 u_col_c;
+  uniform vec3 u_col_d;
+
+  uniform float u_psize;
+  
+  uniform vec2 u_resolution;
+  uniform vec2 u_screen;
+  
+  uniform float u_dpr;
+  
+  uniform sampler2D s_data;
+  uniform sampler2D b_position;
+  
+  varying float v_shape;
+  varying float v_angle;
+  varying vec3 v_colour;
+  varying float v_fogDepth;
+  varying mat2 v_rotmat;
+  varying float pointsize;
+  
+  vec3 pal( in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d ) {
+    return a + b*cos( 6.28318*(c*t+d) );
+  }
+  
+  float rand(vec2 n) { 
+    return fract(sin(dot(n, vec2(12.9898, 4.1414))) * 43758.5453);
+  }
+
+  vec3 getColour(float x) {
+    vec3 a = u_col_a;
+    vec3 b = u_col_b;
+    vec3 c = u_col_c;
+    vec3 d = u_col_d;
+
+    return pal(x, a, b, c, d);
+  }
+  
+  void main() {
+    vec4 mv = texture2D(b_position, reference);
+    vec2 position = mv.xy;
+    vec4 data = texture2D(s_data, reference);
+    
+    if(data.a == 0.) {
+      v_shape = data.a;
+      gl_Position = vec4(0);
+      return;
+    }
+    
+    gl_PointSize = u_psize * data.x * u_dpr * .5;
+    pointsize = gl_PointSize;
+    vec2 p = position/u_resolution;
+    v_colour = vec3(1,1,1);
+    vec4 pos = vec4(position / u_resolution * 2. - 1., 0., 1.);
+    gl_Position = vec4(pos.xy, 0., 1.);
+    v_colour = getColour( data.z );
+    v_shape = data.a;
+    v_angle = atan(mv.w, mv.z) + 1.5708;
+    
+    float c = cos(v_angle);
+    float s = sin(v_angle);
+    v_rotmat = mat2(c, -s, s, c);
+  }
+</script>
+<script id="fragmentShader_particle" type="x-shader/x-fragment">
+  #extension GL_OES_standard_derivatives : enable
+  precision highp float;
+  
+  uniform vec2 u_resolution;
+  uniform vec2 u_mouse;
+  uniform float u_time;
+  
+  varying float v_shape;
+  varying float v_angle;
+  varying vec3 v_colour;
+  varying mat2 v_rotmat;
+  varying float pointsize;
+  
+  uniform float u_dpr;
+  
+  uniform sampler2D s_sdfs;
+
+  void main() {
+    vec2 uv = gl_PointCoord.xy - .5;
+    
+    gl_FragColor = vec4(0, 0, 0, 1);
+    
+    if(v_shape == 0.) {
+      discard;
+      return;
+    }
+    
+    vec2 _uv = (uv) * v_rotmat;
+    float c = texture2D(s_sdfs,_uv * 1.5 + .5).a;
+    
+    // float s = smoothstep(.2, .05-aa * 2., length(uv-aa*5.)) * bb * so;
+    float opacity = clamp(c, 0., 1.);
+    
+    if(opacity < .01) discard;
+    gl_FragColor = vec4(v_colour, opacity);
+    
+    // vec4 col = vec4(c*v_colour, 1.);
+    // gl_FragColor = col;
+  }
+</script>
+<script id="fragmentShader_position" type="x-shader/x-fragment">
+  precision highp float;
+  
+  uniform vec2 u_resolution;
+  uniform vec4 u_mouse;
+  uniform float u_time;
+  uniform sampler2D s_noise;
+  uniform vec2 u_screen;
+  uniform float u_speed;
+  uniform float u_noisesize;
+  
+  uniform sampler2D s_data;
+  uniform sampler2D b_position;
+  
+  uniform vec2 u_multiplier;
+  
+  
+  //	Simplex 3D Noise 
+  //	by Ian McEwan, Ashima Arts
+  //
+  vec4 permute(vec4 x){return mod(((x*34.0)+1.0)*x, 289.0);}
+  vec4 taylorInvSqrt(vec4 r){return 1.79284291400159 - 0.85373472095314 * r;}
+  
+  float rand(float n){return fract(sin(n) * 43758.5453123);}
+  float rand(vec2 n) { 
+    return fract(sin(dot(n, vec2(12.9898, 4.1414))) * 43758.5453);
+  }
+  float snoise(vec3 v){ 
+    const vec2  C = vec2(1.0/6.0, 1.0/3.0) ;
+    const vec4  D = vec4(0.0, 0.5, 1.0, 2.0);
+
+  // First corner
+    vec3 i  = floor(v + dot(v, C.yyy) );
+    vec3 x0 =   v - i + dot(i, C.xxx) ;
+
+  // Other corners
+    vec3 g = step(x0.yzx, x0.xyz);
+    vec3 l = 1.0 - g;
+    vec3 i1 = min( g.xyz, l.zxy );
+    vec3 i2 = max( g.xyz, l.zxy );
+
+    //  x0 = x0 - 0. + 0.0 * C 
+    vec3 x1 = x0 - i1 + 1.0 * C.xxx;
+    vec3 x2 = x0 - i2 + 2.0 * C.xxx;
+    vec3 x3 = x0 - 1. + 3.0 * C.xxx;
+
+  // Permutations
+    i = mod(i, 289.0 ); 
+    vec4 p = permute( permute( permute( 
+               i.z + vec4(0.0, i1.z, i2.z, 1.0 ))
+             + i.y + vec4(0.0, i1.y, i2.y, 1.0 )) 
+             + i.x + vec4(0.0, i1.x, i2.x, 1.0 ));
+
+  // Gradients
+  // ( N*N points uniformly over a square, mapped onto an octahedron.)
+    float n_ = 1.0/7.0; // N=7
+    vec3  ns = n_ * D.wyz - D.xzx;
+
+    vec4 j = p - 49.0 * floor(p * ns.z *ns.z);  //  mod(p,N*N)
+
+    vec4 x_ = floor(j * ns.z);
+    vec4 y_ = floor(j - 7.0 * x_ );    // mod(j,N)
+
+    vec4 x = x_ *ns.x + ns.yyyy;
+    vec4 y = y_ *ns.x + ns.yyyy;
+    vec4 h = 1.0 - abs(x) - abs(y);
+
+    vec4 b0 = vec4( x.xy, y.xy );
+    vec4 b1 = vec4( x.zw, y.zw );
+
+    vec4 s0 = floor(b0)*2.0 + 1.0;
+    vec4 s1 = floor(b1)*2.0 + 1.0;
+    vec4 sh = -step(h, vec4(0.0));
+
+    vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy ;
+    vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww ;
+
+    vec3 p0 = vec3(a0.xy,h.x);
+    vec3 p1 = vec3(a0.zw,h.y);
+    vec3 p2 = vec3(a1.xy,h.z);
+    vec3 p3 = vec3(a1.zw,h.w);
+
+  //Normalise gradients
+    vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2, p2), dot(p3,p3)));
+    p0 *= norm.x;
+    p1 *= norm.y;
+    p2 *= norm.z;
+    p3 *= norm.w;
+
+  // Mix final noise value
+    vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+    m = m * m;
+    return 42.0 * dot( m*m, vec4( dot(p0,x0), dot(p1,x1), 
+                                  dot(p2,x2), dot(p3,x3) ) );
+  }
+  
+  float noise21(vec2 n) {
+    const vec2 d = vec2(0.0, 1.0);
+    vec2 b = floor(n), f = smoothstep(vec2(0.0), vec2(1.0), fract(n));
+    return mix(mix(rand(b), rand(b + d.yx), f.x), mix(rand(b + d.xy), rand(b + d.yy), f.x), f.y);
+  }
+  
+  void main() {
+    vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+    vec4 sample = texture2D(b_position, uv);
+    vec4 data = texture2D(s_data, uv);
+    vec2 position = sample.xy;
+    vec2 velocity = sample.zw;
+    
+    if(data.a == 0.) {
+      gl_FragColor = vec4(position, velocity);
+      return;
+    }
+    
+    vec2 m = position-u_mouse.xy;
+    m = vec2(length(m), atan(m.y, m.x));
+    
+    float a = snoise(vec3(position*.004*u_noisesize, u_time - floor(u_time*.5) * 20.)) * (3.14159 * 2.) * ( 1. + data.y * .2);
+    
+    float c = cos(a);
+    float s = sin(a);
+    
+    float mass = data.y*2.;
+    
+    velocity *= .99;
+    velocity += vec2(c, s) * u_speed * ((mass-1.) * .2 - .1);
+    
+    // velocity = (velocity + vec2(c, s) * u_speed * ((mass*u_multiplier.x-1.) * .2 - .1)) * min((mass*u_multiplier.y) * .05 + .95, .99);
+    // velocity = (velocity + vec2(c, s) * ((mass) * .2 + .1)) * .98 * ((1.-mass) * .01 + .99);
+    // velocity = (velocity + vec2(c, s) * .1) * .99;
+    
+    if(length(velocity) > 10.) velocity = normalize(velocity)*10.;
+    
+    if(u_mouse.z == 1.) {
+      // float str = 1./m.x * 1000.;
+      float str = smoothstep(500., 100., m.x);
+      str = pow(str * 1.1, 10. * (1.-mass * .5));
+      velocity += vec2( cos(m.y) * str, sin(m.y) * str );
+    }
+    
+    vec2 pos = position + velocity;
+    if(pos.x > u_screen.x + 100.) pos.x = -90.;
+    else if(pos.x < -100.) pos.x = u_screen.x + 90.;
+    if(pos.y > u_screen.y + 100.) pos.y = -90.;
+    else if(pos.y < -100.) pos.y = u_screen.y + 90.;
+    
+    gl_FragColor = vec4(pos, velocity);
+  }
+</script>
+<script type="module" src="script.js"></script>
+</body>
+
+<!-- Mirrored from digitonaut.com/art/genuary_touch/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 10:05:01 GMT -->
+</html>

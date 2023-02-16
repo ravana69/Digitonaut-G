@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<!-- Mirrored from digitonaut.com/art/glooper/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 10:05:07 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta charset='utf-8'\>
+<meta name='apple-mobile-web-app-capable' content='yes'><meta name='apple-mobile-web-app-status-bar-style' content='black-translucent'><title>Glooper</title>
+
+<link type="text/css" rel="stylesheet" href="main.css">
+</head>
+<body>
+
+<script id="vs" type="not-js">
+void main()	{
+  gl_Position = vec4( position, 1.0 );
+}
+</script>
+<script id="fs" type="not-js">
+precision mediump float;
+
+// -------------------------------------------- code from https://glslsandbox.com/ ------------------
+//----from https://www.shadertoy.com/view/3sKBRz
+
+#ifdef GL_ES
+precision mediump float;
+#endif
+
+// glslsandbox uniforms
+uniform float time;
+uniform vec2 resolution;
+
+// shadertoy emulation
+#define iTime time
+#define iResolution resolution
+#define MAX_STEPS 100
+#define MAX_DIST 400.0
+#define SURF_DIST 0.01
+
+float sdSphere(vec3 p, vec4 s){
+	return  length(p-s.xyz)-s.w;
+}
+
+float smin( float a, float b, float k )
+{
+    float h = clamp( 0.5+0.5*(b-a)/k, 0.0, 1.0 );
+    return mix( b, a, h ) - k*h*(1.0-h);
+}
+
+float GetDist(vec3 p){
+    
+   	float sd = sdSphere(p-vec3(0.0,1.0,6.0),vec4(0,0,0,1.));
+	float v = 0.5+sin(iTime*2.4 + p.z*5.4+p.y*3.4+p.x*4.1)*0.5;
+	sd += v*0.25;
+	float k = 3.5+sin(p.y*3.2+iTime*3.16);
+    float d = smin(sd*0.75,p.y+.5,k);
+    return d;
+}
+
+
+float RayMarch(vec3 ro, vec3 rd){
+    float dO = 0.;
+    for(int i = 0; i < MAX_STEPS;i++){
+        vec3 p = ro + rd  * dO;
+        float dS = GetDist(p);
+        dO += dS;
+        
+        if(dO > MAX_DIST || dS < SURF_DIST) break;
+    
+    }
+    
+    return dO;
+}
+
+
+vec3 GetNormal(vec3 p){
+	float d = GetDist(p);
+    vec2 e = vec2(0.005,0);
+    
+    
+    vec3 n = d - vec3(GetDist(p - e.xyy),
+                      GetDist(p - e.yxy),
+                      GetDist(p - e.yyx));
+    
+    return normalize(n);
+}
+
+
+float GetLight(vec3 p,vec3 rd)
+{
+    float t = fract(iTime*0.54)*6.28;
+	vec3 lightPos = vec3(0,8.+sin(t+p.z)*5.0,3);
+    vec3 l = normalize(lightPos - p);
+    
+    vec3 n = GetNormal(p);
+    
+    float dif = clamp(dot(n,l),0.0,1.);
+    float d = RayMarch(p+n*SURF_DIST*2., l);
+
+    vec3 ref = reflect(rd, n);
+	float spe = max(dot(ref, l), 0.0);
+   	dif += pow(spe,64.0);
+    if(d < length(lightPos-p)) dif *= .5;
+    
+    return dif;
+}
+
+
+
+void mainImage( out vec4 fragColor, in vec2 fragCoord )
+{
+    vec2 uv = (fragCoord-.5*iResolution.xy)/iResolution.y;
+    vec3 col = vec3(0.0);
+    vec3 ro = vec3(0,2,-1);
+    vec3 rd = normalize(vec3(uv.x,uv.y-.3,2));
+    float d = RayMarch(ro,rd);
+    vec3 p = ro + rd *d;
+    float dif = GetLight(p,rd);
+    col = vec3(dif*(1.0+sin(rd.x)),dif,dif*0.8);
+    fragColor = vec4(col,1.0);
+}
+
+void main(void)
+{
+    mainImage(gl_FragColor, gl_FragCoord.xy);
+    gl_FragColor.a = 1.;
+}
+
+// -------------------------------------------------------------------------------------------------------------------
+
+</script>
+<script src="three.min.js"></script>
+<script src="main.js"></script>
+
+</body>
+
+<!-- Mirrored from digitonaut.com/art/glooper/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 10:05:09 GMT -->
+</html>

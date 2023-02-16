@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<!-- Mirrored from digitonaut.com/art/green_zozuar_fractal/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 10:05:44 GMT -->
+<!-- Added by HTTrack --><meta http-equiv="content-type" content="text/html;charset=UTF-8" /><!-- /Added by HTTrack -->
+<head>
+<meta charset='utf-8'\>
+<meta name='apple-mobile-web-app-capable' content='yes'><meta name='apple-mobile-web-app-status-bar-style' content='black-translucent'><title>Green Zozuar Fractal</title>
+
+<link type="text/css" rel="stylesheet" href="main.css">
+</head>
+<body>
+
+<script id="vs" type="not-js">
+void main()	{
+  gl_Position = vec4( position, 1.0 );
+}
+</script>
+<script id="fs" type="not-js">
+precision mediump float;
+
+// -------------------------------------------- code from https://glslsandbox.com/ ------------------
+#ifdef GL_ES
+precision mediump float;
+#endif
+
+// glslsandbox uniforms
+uniform float time;
+uniform vec2 resolution;
+
+vec3 outCol = vec3 (.0); 
+
+void yonatansFractal (float t, vec2 FC, vec2 r, inout vec3 o)
+{
+    float g=0., e, s, k = t*.1;
+    for(float i=0.; i < 59.;++i) {
+        vec3 p = vec3(g*(FC.xy - .5*r)/r.y + .2,g - 1.);
+	p.xz *= mat2(cos(k),sin(k),-sin(k),cos(k));
+        s = 3.;
+        for(int i=0; i < 4; ++i ) {
+            s *= e = max(1.,(11.-2.*cos(k))/dot(p,p));
+            p = vec3(2,4,.1) - abs(abs(p)*e - vec3(4,4,2) );
+        }
+        g += min(length(p.xz), p.y)/s;
+        o.rg += (s + .9, 11.3, s/5e4);
+    }
+}
+
+void main(void)
+{
+    yonatansFractal(time+20., gl_FragCoord.xy, resolution.xy, outCol);
+    gl_FragColor = vec4(outCol, 1.)*vec4(0.7,1.5,0,1);
+}
+// -------------------------------------------------------------------------------------------------------------------
+
+</script>
+<script src="three.min.js"></script>
+<script src="main.js"></script>
+
+</body>
+
+<!-- Mirrored from digitonaut.com/art/green_zozuar_fractal/ by HTTrack Website Copier/3.x [XR&CO'2014], Thu, 16 Feb 2023 10:05:48 GMT -->
+</html>
